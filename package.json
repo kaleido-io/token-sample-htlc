@@ -27,7 +27,6 @@
   },
   "devDependencies": {
     "eslint": "^5.13.0",
-    "truffle-assertions": "^0.8.2",
-    "truffle-hdwallet-provider": "^1.0.3"
+    "truffle-assertions": "^0.8.2"
   }
 }
