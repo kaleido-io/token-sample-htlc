@@ -23,7 +23,7 @@
   ],
   "homepage": "https://github.com/chatch/hashed-timelock-contract-ethereum#README.md",
   "dependencies": {
-    "openzeppelin-solidity": "2.3.0"
+    "@openzeppelin/contracts": "^4.9.6"
   },
   "devDependencies": {
     "eslint": "^5.13.0",
