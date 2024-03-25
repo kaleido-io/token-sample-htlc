@@ -2,7 +2,6 @@
   "name": "ethereum-htlc",
   "version": "0.0.8",
   "description": "Hashed Timelock Contracts for Ethereum",
-  "main": "truffle.js",
   "license": "GPL-3.0",
   "repository": "chatch/hashed-timelock-contract-ethereum",
   "bugs": {
@@ -27,7 +26,6 @@
   },
   "devDependencies": {
     "eslint": "^5.13.0",
-    "truffle-assertions": "^0.8.2",
-    "truffle-hdwallet-provider": "^1.0.3"
+    "hardhat": "^2.22.2"
   }
 }
