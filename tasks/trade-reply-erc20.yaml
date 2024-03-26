@@ -1,0 +1,46 @@
+steps:
+  - name: activity_query
+    type: data_model_query
+    dynamicOptions:
+      events:
+        startsWith:
+          - field: "'name'"
+            value: "'offer-erc721-'"
+        equal:
+          - field: "'activity'"
+            value: '"trade-" & input.hashlock'
+        labels:
+          equal:
+            - field: "'receiver'"
+              value: input.selfAddress
+    errorCondition: 'steps.activity_query.data.events.count = 0 ? "Trade offer not found" : false'
+  - name: create_trade
+    type: firefly_request
+    options:
+      headers:
+        content-type: application/json
+    dynamicOptions:
+      namespace: input.namespace
+      path: '"apis/" & input.api & "/invoke/newContract"'
+      body: >-
+        {
+            "key": input.selfAddress,
+            "input": {
+                "_hashlock": input.hashlock,
+                "_timelock": $string($number(steps.activity_query.data.events.items[0].info.timelock) - input.bufferHours * 60 * 60),
+                "_receiver": steps.activity_query.data.events.items[0].labels.sender,
+                "_tokenContract": input.tokenAddress,
+                "_amount": input.tokenAmount
+            }
+        }
+
+exampleInput: >-
+  {
+      "namespace": "ff-payments-bank2",
+      "api": "htlc-erc20",
+      "hashlock": "0xf57e4fab8446641bac191ea2ee2a9aecb2e583e63e0a28263d82707e63d087fd",
+      "selfAddress": "0xdf83ebf4e3e6fad098ab708eb8893afd6dd3270b",
+      "tokenAddress": "0x559d1178758d5b18d55cde1a780219904f1d207a",
+      "tokenAmount": "100000000000000000000",
+      "bufferHours": 2
+  }

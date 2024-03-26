@@ -1,0 +1,267 @@
+# Indexer task for HTLC ERC-20 trades
+steps:
+  - name: filter_events
+    type: jsonata_template
+    options:
+      template: '{}'
+    stopCondition: |-
+      $not(
+        input.blockchainEvent.name = "HTLCERC20New" or
+        input.blockchainEvent.name = "HTLCERC20Withdraw"
+      )
+
+  # Retrieve contract details (HTLCERC20Withdraw only)
+  - name: query_contract
+    type: firefly_request
+    skip: input.blockchainEvent.name != "HTLCERC20Withdraw"
+    options:
+      bodyJSONEncoding: json
+      method: POST
+      path: contracts/query
+    dynamicOptions:
+      namespace: input.blockchainEvent.namespace
+      body: |-
+        {
+          "input": {
+            "_contractId": input.blockchainEvent.output.contractId
+          },
+          "location": {
+            "address": input.blockchainEvent.info.address
+          },
+          "options": {
+            "blockNumber": input.blockchainEvent.info.blockNumber
+          },
+          "method": {
+            "name": "getContract",
+            "pathname": "getContract",
+            "description": "",
+            "params": [
+              {
+                "name": "_contractId",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              }
+            ],
+            "returns": [
+              {
+                "name": "sender",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              },
+              {
+                "name": "receiver",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              },
+              {
+                "name": "tokenContract",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "address",
+                    "internalType": "address"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              },
+              {
+                "name": "amount",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "details": {
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  "description": "An integer. You are recommended to use a JSON string. A JSON number can be used for values up to the safe maximum."
+                }
+              },
+              {
+                "name": "hashlock",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              },
+              {
+                "name": "timelock",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "details": {
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  },
+                  "description": "An integer. You are recommended to use a JSON string. A JSON number can be used for values up to the safe maximum."
+                }
+              },
+              {
+                "name": "withdrawn",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "details": {
+                    "type": "bool",
+                    "internalType": "bool"
+                  },
+                  "description": "A boolean. You can use a boolean or a string true/false as input"
+                }
+              },
+              {
+                "name": "refunded",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "boolean"
+                    }
+                  ],
+                  "details": {
+                    "type": "bool",
+                    "internalType": "bool"
+                  },
+                  "description": "A boolean. You can use a boolean or a string true/false as input"
+                }
+              },
+              {
+                "name": "preimage",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "bytes32",
+                    "internalType": "bytes32"
+                  },
+                  "description": "A hex encoded set of bytes, with an optional '0x' prefix"
+                }
+              }
+            ],
+            "details": {
+              "stateMutability": "view"
+            }
+          }
+        }
+
+  - name: naming
+    type: jsonata_template
+    options:
+      template: |-
+        {
+          "assetName": input.blockchainEvent.name = "HTLCERC20New" ?
+            input.blockchainEvent.output.tokenContract :
+            steps.query_contract.data.tokenContract,
+          "activityName": input.blockchainEvent.name = "HTLCERC20New" ?
+            "trade-" & input.blockchainEvent.output.hashlock :
+            "trade-" & steps.query_contract.data.hashlock
+        }
+
+  # HTLCERC20New
+  - name: upsert_new
+    type: data_model_update
+    skip: input.blockchainEvent.name != "HTLCERC20New"
+    dynamicOptions:
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName,
+            "info": {
+              "hashlock": input.blockchainEvent.output.hashlock
+            }
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "offer-erc20-" & input.blockchainEvent.output.contractId,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "labels": {
+              "sender": input.blockchainEvent.output.sender,
+              "receiver": input.blockchainEvent.output.receiver
+            },
+            "info": {
+              "contractId": input.blockchainEvent.output.contractId,
+              "hashlock": input.blockchainEvent.output.hashlock,
+              "timelock": input.blockchainEvent.output.timelock,
+              "transactionHash": input.blockchainEvent.info.transactionHash
+            }
+        }]
+
+  # HTLCERC20Withdraw
+  - name: upsert_withdraw
+    type: data_model_update
+    skip: input.blockchainEvent.name != "HTLCERC20Withdraw"
+    dynamicOptions:
+      activities: |-
+        [{
+            "updateType": "create_or_update",
+            "name": steps.naming.data.activityName,
+            "info": {
+              "hashlock": steps.query_contract.data.hashlock,
+              "preimage": steps.query_contract.data.preimage
+            }
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "withdraw-erc20-" & input.blockchainEvent.output.contractId,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "labels": {
+              "sender": steps.query_contract.data.sender,
+              "receiver": steps.query_contract.data.receiver
+            },
+            "info": {
+              "contractId": input.blockchainEvent.output.contractId,
+              "hashlock": steps.query_contract.data.hashlock,
+              "timelock": steps.query_contract.data.timelock,
+              "preimage": steps.query_contract.data.preimage,
+              "transactionHash": input.blockchainEvent.info.transactionHash
+            }
+        }]

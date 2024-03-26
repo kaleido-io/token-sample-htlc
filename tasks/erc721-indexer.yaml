@@ -1,0 +1,289 @@
+# Indexer task for ERC-721 NFTs
+# Should be used as a listener for ERC-721 "Transfer" and "Approval", and
+# ERC-4906 "MetadataUpdate" events.
+# The emitting contract must implement "tokenURI()" from IERC721Metadata.
+steps:
+  - name: filter_events
+    type: jsonata_template
+    options:
+      template: '{}'
+    stopCondition: |-
+      $not(
+        (
+          input.blockchainEvent.info.signature = "Transfer(address,address,uint256)" and
+          $exists(input.blockchainEvent.output.tokenId)
+        ) or
+        (
+          input.blockchainEvent.info.signature = "Approval(address,address,uint256)" and
+          $exists(input.blockchainEvent.output.tokenId)
+        ) or
+        (
+          input.blockchainEvent.info.signature = "MetadataUpdate(uint256)" and
+          $exists(input.blockchainEvent.output._tokenId)
+        )
+      )
+  - name: token_id
+    type: jsonata_template
+    options:
+      template: |-
+        $exists(input.blockchainEvent.output._tokenId) ?
+          input.blockchainEvent.output._tokenId : input.blockchainEvent.output.tokenId
+  - name: naming
+    type: jsonata_template
+    options:
+      template: |-
+        {
+          "collectionName": input.blockchainEvent.info.address,
+          "assetName": input.blockchainEvent.info.address & "_" & steps.token_id.data,
+          "activityName": "nft-" & input.blockchainEvent.info.address & "_" & steps.token_id.data,
+          "protocolIdSafe": $replace(input.blockchainEvent.protocolId, "/", "_")
+        }
+
+  # Approval
+  - name: approval_upsert
+    type: data_model_update
+    skip: input.blockchainEvent.name != "Approval"
+    dynamicOptions:
+      collections: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.collectionName
+        }]
+      assets: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName,
+            "collection": steps.naming.data.collectionName
+        }]
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "approval-" & steps.naming.data.protocolIdSafe,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+              "address": input.blockchainEvent.info.address,
+              "protocolId": input.blockchainEvent.protocolId,
+              "transactionHash": input.blockchainEvent.info.transactionHash,
+              "owner": input.blockchainEvent.output.owner,
+              "approved": input.blockchainEvent.output.approved,
+              "tokenIndex": steps.naming.data.assetName
+            }
+        }]
+    stopCondition: 'true'
+
+  # MetadataUpdate
+  - name: query_uri
+    type: firefly_request
+    skip: input.blockchainEvent.name != "MetadataUpdate"
+    options:
+      bodyJSONEncoding: json
+      method: POST
+      path: contracts/query
+    dynamicOptions:
+      namespace: input.blockchainEvent.namespace
+      body: |-
+        {
+          "input": {
+            "tokenId": $string(steps.token_id.data)
+          },
+          "location": {
+            "address": input.blockchainEvent.info.address
+          },
+          "options": {
+            "blockNumber": input.blockchainEvent.info.blockNumber
+          },
+          "method": {
+            "name": "tokenURI",
+            "pathname": "tokenURI",
+            "params": [
+              {
+                "name": "tokenId",
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "integer"
+                    }
+                  ],
+                  "details": {
+                    "type": "uint256",
+                    "internalType": "uint256"
+                  }
+                }
+              }
+            ],
+            "returns": [
+              {
+                "name": "",
+                "schema": {
+                  "type": "string",
+                  "details": {
+                    "type": "string",
+                    "internalType": "string"
+                  }
+                }
+              }
+            ],
+            "details": {
+              "stateMutability": "view"
+            }
+          }
+        }
+  - name: metadata_upsert
+    type: data_model_update
+    skip: input.blockchainEvent.name != "MetadataUpdate"
+    dynamicOptions:
+      collections: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.collectionName
+        }]
+      assets: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName,
+            "collection": steps.naming.data.collectionName
+        }]
+      nfts: |-
+        [{
+            "updateType": "create_or_update",
+            "name": steps.naming.data.assetName,
+            "asset": steps.naming.data.assetName,
+            "address": input.blockchainEvent.info.address,
+            "tokenIndex": $string(steps.token_id.data),
+            "uri": steps.query_uri.data.output
+        }]
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "metadata-" & steps.naming.data.protocolIdSafe,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+              "address": input.blockchainEvent.info.address,
+              "protocolId": input.blockchainEvent.protocolId,
+              "transactionHash": input.blockchainEvent.info.transactionHash,
+              "tokenIndex": steps.token_id.data,
+              "uri": steps.query_uri.data.output
+            }
+        }]
+    stopCondition: 'true'
+
+  # Transfer
+  - name: transfer_upsert
+    type: data_model_update
+    dynamicOptions:
+      collections: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.collectionName
+        }]
+      assets: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName,
+            "collection": steps.naming.data.collectionName
+        }]
+      nfts: |-
+        [{
+            "updateType": "create_or_ignore",
+            "active": true,
+            "asset": steps.naming.data.assetName,
+            "name": steps.naming.data.assetName,
+            "standard": "ERC-721",
+            "address": input.blockchainEvent.info.address,
+            "tokenIndex": $string(steps.token_id.data),
+            "firefly": {
+              "namespace": input.blockchainEvent.namespace
+            }
+        }]
+      transfers: |-
+        [{
+            "updateType": "create_or_replace",
+            "protocolId": input.blockchainEvent.protocolId,
+            "asset": steps.naming.data.assetName,
+            "from": input.blockchainEvent.output.from,
+            "to": input.blockchainEvent.output.to,
+            "amount": "1",
+            "transactionHash": input.blockchainEvent.info.transactionHash,
+            "parent": {
+                "type": "nft",
+                "ref": steps.naming.data.assetName
+            },
+            "firefly": {
+              "namespace": input.blockchainEvent.namespace
+            },
+            "info": {
+                "address": input.blockchainEvent.info.address,
+                "blockNumber": input.blockchainEvent.info.blockNumber
+            }
+        }]
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "transfer-" & steps.naming.data.protocolIdSafe,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+              "address": input.blockchainEvent.info.address,
+              "protocolId": input.blockchainEvent.protocolId,
+              "transactionHash": input.blockchainEvent.info.transactionHash,
+              "tokenIndex": steps.token_id.data
+            }
+        }]
+
+exampleInput: >-
+  {
+      "blockchainEvent": {
+          "id": "093eaf3a-77bb-408c-9100-4564d3a3db29",
+          "source": "fftokens:s-7rfpvso9iq",
+          "namespace": "org1",
+          "name": "Transfer",
+          "protocolId": "000000019162/000000/000000",
+          "output": {
+              "from": "0x0000000000000000000000000000000000000000",
+              "to": "0xf6b7ed4ad814ce398aa122dfb73f231b83e2f7b3",
+              "tokenId": "12"
+          },
+          "info": {
+              "address": "0x93d56a1e47c87efb0b45d54341b867f66a2f2f4e",
+              "blockNumber": "19162",
+              "logIndex": "0",
+              "signature": "Transfer(address,address,uint256)",
+              "transactionHash": "0x320b418117638aaf8bdcde07fe7fe39a6fc4e490ad68d6298ad33d24ebb7c737",
+              "transactionIndex": "0"
+          },
+          "timestamp": "2024-03-06T16:24:23Z",
+          "tx": {
+              "type": "token_transfer",
+              "blockchainId": "0x320b418117638aaf8bdcde07fe7fe39a6fc4e490ad68d6298ad33d24ebb7c737"
+          }
+      }
+  }

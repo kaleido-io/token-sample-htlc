@@ -1,0 +1,119 @@
+# Indexer task for ERC20 transfers
+# Should be used as a listener for ERC-20 "Transfer" and "Approval".
+steps:
+  - name: filter_events
+    type: jsonata_template
+    options:
+      template: '{}'
+    stopCondition: |-
+      $not(
+        (
+          input.blockchainEvent.info.signature = "Transfer(address,address,uint256)" and
+          $exists(input.blockchainEvent.output.value)
+        ) or
+        (
+          input.blockchainEvent.info.signature = "Approval(address,address,uint256)" and
+          $exists(input.blockchainEvent.output.value)
+        )
+      )
+  - name: naming
+    type: jsonata_template
+    options:
+      template: |-
+        {
+          "assetName": input.blockchainEvent.info.address,
+          "activityName": "token-" & input.blockchainEvent.info.address,
+          "protocolIdSafe": $replace(input.blockchainEvent.protocolId, "/", "_")
+        }
+
+  # Approval
+  - name: approval_upsert
+    type: data_model_update
+    skip: input.blockchainEvent.name != "Approval"
+    dynamicOptions:
+      assets: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName
+        }]
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "approval-" & steps.naming.data.protocolIdSafe,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+              "address": input.blockchainEvent.info.address,
+              "protocolId": input.blockchainEvent.protocolId,
+              "transactionHash": input.blockchainEvent.info.transactionHash,
+              "owner": input.blockchainEvent.output.owner,
+              "spender": input.blockchainEvent.output.spender,
+              "value": steps.naming.data.value
+            }
+        }]
+    stopCondition: 'true'
+
+  # Transfer
+  - name: transfer_upsert
+    type: data_model_update
+    dynamicOptions:
+      assets: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName
+        }]
+      pools: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.assetName,
+            "asset": steps.naming.data.assetName,
+            "standard": "ERC-20",
+            "address": input.blockchainEvent.info.address,
+            "firefly": {
+                "namespace": input.blockchainEvent.namespace
+            }
+        }]
+      transfers: |-
+        [{
+            "updateType": "create_or_replace",
+            "protocolId": input.blockchainEvent.protocolId,
+            "asset": steps.naming.data.assetName,
+            "from": input.blockchainEvent.output.from,
+            "to": input.blockchainEvent.output.to,
+            "amount": input.blockchainEvent.output.value,
+            "transactionHash": input.blockchainEvent.info.transactionHash,
+            "parent": {
+                "type": "pool",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+                "address": input.blockchainEvent.info.address,
+                "blockNumber": input.blockchainEvent.info.blockNumber
+            }
+        }]
+      activities: |-
+        [{
+            "updateType": "create_or_ignore",
+            "name": steps.naming.data.activityName
+        }]
+      events: |-
+        [{
+            "updateType": "create_or_replace",
+            "name": "transfer-" & steps.naming.data.protocolIdSafe,
+            "activity": steps.naming.data.activityName,
+            "parent": {
+                "type": "asset",
+                "ref": steps.naming.data.assetName
+            },
+            "info": {
+              "protocolId": input.blockchainEvent.protocolId
+            }
+        }]

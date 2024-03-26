@@ -1,0 +1,62 @@
+steps:
+  - name: calculate_hashlock
+    type: javascript
+    options:
+      function: |-
+        {
+            const preimage = crypto.randomBytes(32);
+            const hashlock = crypto.createHash('sha256').update(preimage);
+            return {
+              preimage: '0x' + preimage.toString('hex'),
+              hashlock: '0x' + hashlock.digest('hex')
+            };
+        }
+  - name: create_trade
+    type: firefly_request
+    options:
+      headers:
+        content-type: application/json
+    dynamicOptions:
+      namespace: input.namespace
+      path: '"apis/" & input.api & "/invoke/newContract"'
+      body: |-
+        {
+            "key": input.sender,
+            "input": {
+                "_hashlock": steps.calculate_hashlock.data.hashlock,
+                "_timelock": $string($floor($millis() / 1000) + input.timeHours * 60 * 60),
+                "_receiver": input.receiver,
+                "_tokenContract": input.tokenAddress,
+                "_tokenId": input.tokenIndex
+            }
+        }
+  - name: naming
+    type: jsonata_template
+    options:
+      template: |-
+        {
+          "activityName": "trade-" & steps.calculate_hashlock.data.hashlock
+        }
+  - name: activity_upsert
+    type: data_model_update
+    dynamicOptions:
+      activities: |-
+        [{
+            "updateType": "create_or_update",
+            "name": steps.naming.data.activityName,
+            "info": {
+              "hashlock": steps.calculate_hashlock.data.hashlock,
+              "preimage": steps.calculate_hashlock.data.preimage
+            }
+        }]
+
+exampleInput: |-
+  {
+      "namespace": "ff-assets-bank1",
+      "api": "htlc-erc721",
+      "sender": "0xc6c99add2703454a74bf5dee7b91b6c76ebdf4c0",
+      "receiver": "0xdf83ebf4e3e6fad098ab708eb8893afd6dd3270b",
+      "tokenAddress": "0x49e9152fa72b5a801151b414cf38f4bb836632e9",
+      "tokenIndex": "",
+      "timeHours": 24
+  }
