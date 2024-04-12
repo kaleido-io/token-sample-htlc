@@ -1,14 +1,11 @@
 # hashed-timelock-contract-ethereum
 
-[![NPM Package](https://img.shields.io/npm/v/ethereum-htlc.svg?style=flat-square)](https://www.npmjs.org/package/ethereum-htlc)
-
 [Hashed Timelock Contracts](https://en.bitcoin.it/wiki/Hashed_Timelock_Contracts) (HTLCs) for Ethereum:
 
-- [HashedTimelock.sol](contracts/HashedTimelock.sol) - HTLC for native ETH token
 - [HashedTimelockERC20.sol](contracts/HashedTimelockERC20.sol) - HTLC for ERC20 tokens
 - [HashedTimelockERC721.sol](contracts/HashedTimelockERC721.sol) - HTLC for ERC721 tokens
 
-Use these contracts for creating HTLCs on the Ethereum side of a cross chain atomic swap (for example the [xcat](https://github.com/chatch/xcat) project).
+Use these contracts for creating HTLCs on the Ethereum side of a cross chain atomic swap.
 
 ## Run Tests
 
