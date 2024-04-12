@@ -40,8 +40,6 @@ contract AtomicDvP is HashedTimelockBase {
         uint256 _paymentAmount,
         uint256 _assetId
     ) {
-        console.log("paymentAmount", _paymentAmount);
-        console.log("assetId", _assetId);
         require(
             _paymentAmount > 0 || _assetId > 0,
             "token amount and assetId must not be both 0"
