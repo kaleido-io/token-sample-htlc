@@ -1,8 +1,7 @@
 const { assertEqualBN } = require('./helper/assert');
-const { bufToStr, htlcERC20ArrayToObj, isSha256Hash, newSecretHashPair, nowSeconds, random32, txContractId, txLoggedArgs } = require('./helper/utils');
-const promisify = require('util').promisify;
-const sleep = promisify(require('timers').setTimeout);
+const { htlcERC20ArrayToObj, newSecretHashPair, txContractId } = require('./helper/utils');
 const truffleAssert = require('truffle-assertions');
+const helpers = require('@nomicfoundation/hardhat-network-helpers');
 
 const HashedTimelockERC721 = artifacts.require('HashedTimelockERC721');
 const HashedTimelockERC20 = artifacts.require('HashedTimelockERC20');
@@ -11,7 +10,7 @@ const CommodityTokenContract = artifacts.require('AliceERC721');
 const PaymentTokenContract = artifacts.require('BobERC20');
 
 // some testing data
-let timeLock2Sec;
+let timeLock10Sec;
 const tokenAmount = 5;
 
 contract('HashedTimelock swap between ERC721 token and ERC20 token (Delivery vs. Payment)', (accounts) => {
@@ -29,11 +28,6 @@ contract('HashedTimelock swap between ERC721 token and ERC20 token (Delivery vs.
   let htlcCommodityTokens;
   // HTLC contract for managing swaps in payment tokens
   let htlcPaymentTokens;
-
-  // swap contract ID for Commodity delivery Alice -> Bob
-  let deliveryContractId;
-  // swap contract ID for payment Bob -> Alice
-  let paymentContractId;
 
   // shared b/w the two swap contracts in both directions
   let hashPair;
@@ -70,8 +64,8 @@ contract('HashedTimelock swap between ERC721 token and ERC20 token (Delivery vs.
   // without fulfilling his side of the deal, because this transfer is locked by a hashed secret
   // that only Alice knows at this point
   it('Step 1: Alice sets up a swap with Bob to transfer the Commodity token #1', async () => {
-    timeLock2Sec = nowSeconds() + 2;
-    const newSwapTx = await newSwap(CommodityTokens, 1 /*token id*/, htlcCommodityTokens, { hashlock: hashPair.hash, timelock: timeLock2Sec }, Alice, Bob);
+    timeLock10Sec = (await helpers.time.latest()) + 10;
+    const newSwapTx = await newSwap(CommodityTokens, 1 /*token id*/, htlcCommodityTokens, { hashlock: hashPair.hash, timelock: timeLock10Sec }, Alice, Bob);
     a2bSwapId = txContractId(newSwapTx);
 
     // check token balances
@@ -87,8 +81,8 @@ contract('HashedTimelock swap between ERC721 token and ERC20 token (Delivery vs.
   it('Step 2: Bob sets up a swap with Alice in the payment contract', async () => {
     // in a real world swap contract, the counterparty's swap timeout period should be shorter
     // but that does not affect the ideal workflow that we are testing here
-    timeLock2Sec = nowSeconds() + 2;
-    const newSwapTx = await newSwap(PaymentTokens, 50, htlcPaymentTokens, { hashlock: hashPair.hash, timelock: timeLock2Sec }, Bob, Alice);
+    timeLock10Sec = (await helpers.time.latest()) + 10;
+    const newSwapTx = await newSwap(PaymentTokens, 50, htlcPaymentTokens, { hashlock: hashPair.hash, timelock: timeLock10Sec }, Bob, Alice);
     b2aSwapId = txContractId(newSwapTx);
 
     // check token balances
@@ -135,18 +129,19 @@ contract('HashedTimelock swap between ERC721 token and ERC20 token (Delivery vs.
   };
 
   describe('Test the refund scenario:', () => {
-    it('the swap is set up with 3sec timeout on both sides', async () => {
-      timeLock2Sec = nowSeconds() + 3;
-      let newSwapTx = await newSwap(CommodityTokens, 2 /*token id*/, htlcCommodityTokens, { hashlock: hashPair.hash, timelock: timeLock2Sec }, Alice, Bob);
+    it('the swap is set up with 10 sec timeout on both sides', async () => {
+      timeLock10Sec = (await helpers.time.latest()) + 10;
+      let newSwapTx = await newSwap(CommodityTokens, 2 /*token id*/, htlcCommodityTokens, { hashlock: hashPair.hash, timelock: timeLock10Sec }, Alice, Bob);
       a2bSwapId = txContractId(newSwapTx);
 
-      newSwapTx = await newSwap(PaymentTokens, 50, htlcPaymentTokens, { hashlock: hashPair.hash, timelock: timeLock2Sec }, Bob, Alice);
+      newSwapTx = await newSwap(PaymentTokens, 50, htlcPaymentTokens, { hashlock: hashPair.hash, timelock: timeLock10Sec }, Bob, Alice);
       b2aSwapId = txContractId(newSwapTx);
 
       await assertTokenBal(CommodityTokens, htlcCommodityTokens.address, 1, 'HTLC should own 1 Commodity token');
       await assertTokenBal(PaymentTokens, htlcPaymentTokens.address, 50, 'HTLC should own 50 payment tokens');
 
-      await sleep(3000);
+      // increase block time by 100 seconds to make the timeout expire
+      await helpers.time.increase(100);
 
       // after the timeout expiry Alice calls refund() to get her tokens back
       let result = await htlcCommodityTokens.refund(a2bSwapId, {

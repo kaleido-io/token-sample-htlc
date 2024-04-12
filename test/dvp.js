@@ -1,7 +1,8 @@
 const { assertEqualBN } = require('./helper/assert');
-const { bufToStr, htlcERC20ArrayToObj, isSha256Hash, newSecretHashPair, nowSeconds, random32, txtradeId, txLoggedArgs } = require('./helper/utils');
+const { isSha256Hash, newSecretHashPair, txLoggedArgs } = require('./helper/utils');
+const helpers = require('@nomicfoundation/hardhat-network-helpers');
 
-const DvP = artifacts.require('./DvP');
+const DvP = artifacts.require('AtomicDvP');
 const CommodityTokenContract = artifacts.require('AliceERC721');
 const PaymentTokenContract = artifacts.require('BobERC20');
 
@@ -15,13 +16,14 @@ contract('Atomic DvP', (accounts) => {
 
   // some testing data
   const hourSeconds = 3600;
-  const timeLock1Hour = nowSeconds() + hourSeconds;
+  let timeLock1Hour;
   const tokenAmount = 5;
   const EMPTY_BYTES = '0x0000000000000000000000000000000000000000000000000000000000000000';
 
   const assertTokenBal = async (addr, tokenAmount, msg) => assertEqualBN(await paymentToken.balanceOf.call(addr), tokenAmount, msg ? msg : 'wrong token balance');
 
   before(async () => {
+    timeLock1Hour = (await helpers.time.latest()) + hourSeconds;
     dvp = await DvP.new();
 
     paymentToken = await PaymentTokenContract.new(tokenSupply);
@@ -29,8 +31,8 @@ contract('Atomic DvP', (accounts) => {
     await assertTokenBal(buyer, buyerInitialBalance, 'balance not transferred in before()');
 
     assetToken = await CommodityTokenContract.new();
-    await assetToken.transfer(seller, 1);
-    await assetToken.transfer(seller, 2);
+    await assetToken.mint(seller, 1);
+    await assetToken.mint(seller, 2);
   });
 
   it('newTradePayment() should create new trade and store correct details', async () => {
