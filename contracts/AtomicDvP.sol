@@ -6,7 +6,9 @@ import "./HashedTimelockBase.sol";
 import "hardhat/console.sol";
 
 /**
- * @title DvP
+ * @title AtomicDvP orchestrates atomic swaps of assets between two parties. It assumes
+ *     that the asset (ERC721) and payment (ERC20) contracts are both deployed to the
+ *     same blockchain as the AtomicDvP contract.
  *
  * Protocol:
  *
@@ -19,7 +21,7 @@ import "hardhat/console.sol";
  *      withdraw the tokens the sender / creater of the HTLC can get their tokens
  *      back with this function.
  */
-contract DvP is HashedTimelockBase {
+contract AtomicDvP is HashedTimelockBase {
     event NewTrade(
         bytes32 indexed tradeId,
         address indexed sender,
