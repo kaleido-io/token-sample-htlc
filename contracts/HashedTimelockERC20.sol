@@ -1,29 +1,28 @@
-pragma solidity ^0.5.0;
+pragma solidity ^0.8.0;
 
-import "openzeppelin-solidity/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 /**
-* @title Hashed Timelock Contracts (HTLCs) on Ethereum ERC20 tokens.
-*
-* This contract provides a way to create and keep HTLCs for ERC20 tokens.
-*
-* See HashedTimelock.sol for a contract that provides the same functions 
-* for the native ETH token.
-*
-* Protocol:
-*
-*  1) newContract(receiver, hashlock, timelock, tokenContract, amount) - a 
-*      sender calls this to create a new HTLC on a given token (tokenContract) 
-*       for a given amount. A 32 byte contract id is returned
-*  2) withdraw(contractId, preimage) - once the receiver knows the preimage of
-*      the hashlock hash they can claim the tokens with this function
-*  3) refund() - after timelock has expired and if the receiver did not 
-*      withdraw the tokens the sender / creater of the HTLC can get their tokens 
-*      back with this function.
+ * @dev Hashed Timelock Contracts (HTLCs) on Ethereum ERC20 tokens.
+ *
+ * This contract provides a way to create and keep HTLCs for ERC20 tokens.
+ *
+ * See HashedTimelock.sol for a contract that provides the same functions
+ * for the native ETH token.
+ *
+ * Protocol:
+ *
+ *  1) newContract(receiver, hashlock, timelock, tokenContract, amount) - a
+ *      sender calls this to create a new HTLC on a given token (tokenContract)
+ *       for a given amount. A 32 byte contract id is returned
+ *  2) withdraw(contractId, preimage) - once the receiver knows the preimage of
+ *      the hashlock hash they can claim the tokens with this function
+ *  3) refund() - after timelock has expired and if the receiver did not
+ *      withdraw the tokens the sender / creater of the HTLC can get their tokens
+ *      back with this function.
  */
 contract HashedTimelockERC20 {
-    constructor() public {
-    }
+    constructor() {}
 
     event HTLCERC20New(
         bytes32 indexed contractId,
@@ -49,7 +48,11 @@ contract HashedTimelockERC20 {
         bytes32 preimage;
     }
 
-    modifier tokensTransferable(address _token, address _sender, uint256 _amount) {
+    modifier tokensTransferable(
+        address _token,
+        address _sender,
+        uint256 _amount
+    ) {
         require(_amount > 0, "token amount must be > 0");
         require(
             ERC20(_token).allowance(_sender, address(this)) >= _amount,
@@ -61,7 +64,7 @@ contract HashedTimelockERC20 {
         // only requirement is the timelock time is after the last blocktime (now).
         // probably want something a bit further in the future then this.
         // but this is still a useful sanity check:
-        require(_time > now, "timelock time must be in the future");
+        require(_time > block.timestamp, "timelock time must be in the future");
         _;
     }
     modifier contractExists(bytes32 _contractId) {
@@ -76,21 +79,39 @@ contract HashedTimelockERC20 {
         _;
     }
     modifier withdrawable(bytes32 _contractId) {
-        require(contracts[_contractId].receiver == msg.sender, "withdrawable: not receiver");
-        require(contracts[_contractId].withdrawn == false, "withdrawable: already withdrawn");
+        require(
+            contracts[_contractId].receiver == msg.sender,
+            "withdrawable: not receiver"
+        );
+        require(
+            contracts[_contractId].withdrawn == false,
+            "withdrawable: already withdrawn"
+        );
         // if we want to disallow claim to be made after the timeout, uncomment the following line
         // require(contracts[_contractId].timelock > now, "withdrawable: timelock time must be in the future");
         _;
     }
     modifier refundable(bytes32 _contractId) {
-        require(contracts[_contractId].sender == msg.sender, "refundable: not sender");
-        require(contracts[_contractId].refunded == false, "refundable: already refunded");
-        require(contracts[_contractId].withdrawn == false, "refundable: already withdrawn");
-        require(contracts[_contractId].timelock <= now, "refundable: timelock not yet passed");
+        require(
+            contracts[_contractId].sender == msg.sender,
+            "refundable: not sender"
+        );
+        require(
+            contracts[_contractId].refunded == false,
+            "refundable: already refunded"
+        );
+        require(
+            contracts[_contractId].withdrawn == false,
+            "refundable: already withdrawn"
+        );
+        require(
+            contracts[_contractId].timelock <= block.timestamp,
+            "refundable: timelock not yet passed"
+        );
         _;
     }
 
-    mapping (bytes32 => LockContract) contracts;
+    mapping(bytes32 => LockContract) contracts;
 
     /**
      * @dev Sender / Payer sets up a new hash time lock contract depositing the
@@ -134,12 +155,16 @@ contract HashedTimelockERC20 {
         // Reject if a contract already exists with the same parameters. The
         // sender must change one of these parameters (ideally providing a
         // different _hashlock).
-        if (haveContract(contractId))
-            revert();
+        if (haveContract(contractId)) revert();
 
         // This contract becomes the temporary owner of the tokens
-        if (!ERC20(_tokenContract).transferFrom(msg.sender, address(this), _amount))
-            revert();
+        if (
+            !ERC20(_tokenContract).transferFrom(
+                msg.sender,
+                address(this),
+                _amount
+            )
+        ) revert();
 
         contracts[contractId] = LockContract(
             msg.sender,
@@ -165,14 +190,17 @@ contract HashedTimelockERC20 {
     }
 
     /**
-    * @dev Called by the receiver once they know the preimage of the hashlock.
-    * This will transfer ownership of the locked tokens to their address.
-    *
-    * @param _contractId Id of the HTLC.
-    * @param _preimage sha256(_preimage) should equal the contract hashlock.
-    * @return bool true on success
+     * @dev Called by the receiver once they know the preimage of the hashlock.
+     * This will transfer ownership of the locked tokens to their address.
+     *
+     * @param _contractId Id of the HTLC.
+     * @param _preimage sha256(_preimage) should equal the contract hashlock.
+     * @return bool true on success
      */
-    function withdraw(bytes32 _contractId, bytes32 _preimage)
+    function withdraw(
+        bytes32 _contractId,
+        bytes32 _preimage
+    )
         external
         contractExists(_contractId)
         hashlockMatches(_contractId, _preimage)
@@ -194,7 +222,9 @@ contract HashedTimelockERC20 {
      * @param _contractId Id of HTLC to refund from.
      * @return bool true on success
      */
-    function refund(bytes32 _contractId)
+    function refund(
+        bytes32 _contractId
+    )
         external
         contractExists(_contractId)
         refundable(_contractId)
@@ -210,9 +240,10 @@ contract HashedTimelockERC20 {
     /**
      * @dev Get contract details.
      * @param _contractId HTLC contract id
-     * @return All parameters in struct LockContract for _contractId HTLC
      */
-    function getContract(bytes32 _contractId)
+    function getContract(
+        bytes32 _contractId
+    )
         public
         view
         returns (
@@ -228,7 +259,17 @@ contract HashedTimelockERC20 {
         )
     {
         if (haveContract(_contractId) == false)
-            return (address(0), address(0), address(0), 0, 0, 0, false, false, 0);
+            return (
+                address(0),
+                address(0),
+                address(0),
+                0,
+                0,
+                0,
+                false,
+                false,
+                0
+            );
         LockContract storage c = contracts[_contractId];
         return (
             c.sender,
@@ -247,12 +288,9 @@ contract HashedTimelockERC20 {
      * @dev Is there a contract with id _contractId.
      * @param _contractId Id into contracts mapping.
      */
-    function haveContract(bytes32 _contractId)
-        internal
-        view
-        returns (bool exists)
-    {
+    function haveContract(
+        bytes32 _contractId
+    ) internal view returns (bool exists) {
         exists = (contracts[_contractId].sender != address(0));
     }
-
 }
